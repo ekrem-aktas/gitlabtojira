@@ -16,5 +16,8 @@
   "bugs": {
     "url": "https://github.com/ekrem-aktas/gitlabtojira/issues"
   },
-  "homepage": "https://github.com/ekrem-aktas/gitlabtojira#readme"
+  "homepage": "https://github.com/ekrem-aktas/gitlabtojira#readme",
+  "dependencies": {
+    "express": "^4.15.3"
+  }
 }
