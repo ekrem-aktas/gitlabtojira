@@ -9,5 +9,5 @@ app.get("/", function(req, res) {
 });
 
 app.listen(port, ip, () => {
-    console.log("App started listening");
+    console.log($`App started listening on port ${port} and ip ${ip}`);
 });
