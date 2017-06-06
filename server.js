@@ -8,6 +8,8 @@ app.get("/", function(req, res) {
     res.send("okay");
 });
 
+console.log("Will listen on port " + port + " and ip " + ip);
+
 app.listen(port, ip, () => {
     console.log("App started listening on port " + port + " and ip " + ip);
 });
