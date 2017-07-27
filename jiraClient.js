@@ -24,8 +24,18 @@ class JiraClient {
         return serverRequest(request).then(response => Promise.resolve(response.data));
     }
 
+    async findUser(username) {
+        const request = this._buildJiraRequest(`user/search?username=${encodeURIComponent(username)}`);
+        const response = serverRequest(request);
+        return response.status === 200 && response.data.length === 1 ? response.data[0] : null;
+    }
+
     assignIssue(jiraIssueKey, assigneeName) {
         return this._updateIssue(jiraIssueKey, "/assignee", { name: assigneeName }, "PUT");
+    }
+
+    addComment(jiraIssueKey, comment) {
+        return this._updateIssue(jiraIssueKey, "/comment", { body: comment });
     }
 
     updateStatus(jiraIssueKey, statusName) {

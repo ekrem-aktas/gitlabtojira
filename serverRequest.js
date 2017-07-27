@@ -9,6 +9,8 @@ function serverRequest(options) {
             options.headers["Content-Length"] = Buffer.byteLength(options.body);
         }
 
+        options.rejectUnauthorized = false;
+
         var prot = options.port == 443 ? https : http;
         var req = prot.request(options, function(res)
         {

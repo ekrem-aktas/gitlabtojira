@@ -1,4 +1,5 @@
 const JiraClient = require("./jiraClient");
+const GitLabClient = require("./gitlabClient");
 const GitLabMergeRequest = require("./mergeRequest");
 const serverRequest = require("./serverRequest");
 
@@ -7,102 +8,115 @@ const jiraClient = new JiraClient({
     https: true,
 });
 
-function handleMergeRequest(mergeRequestJSON) {
-    return new Promise((resolve, reject) => {
-        const mergeRequest = new GitLabMergeRequest(mergeRequestJSON);
-        const isWebCoreMR = mergeRequest.getLabels().includes("web-core");
+const gitlabClient = new GitLabClient({
+});
 
-        if (!isWebCoreMR || mergeRequest.isDeleted()) {
-            reject("Merge request is not from WebCore team or deleted");
+async function handleMergeRequest(mergeRequestJSON) {
+    const mergeRequest = new GitLabMergeRequest(mergeRequestJSON);
+    const isWebCoreMR = mergeRequest.getLabels().includes("web-core");
+
+    if (!isWebCoreMR || mergeRequest.isDeleted()) {
+        throw new Error("Merge request is not from WebCore team or deleted");
+    }
+
+    const jiraIssueId = mergeRequest.getTitle().match(/^(?:WIP:\s*)?\[(.*?)]/)[1];
+    if (!jiraIssueId || jiraIssueId === "" || jiraIssueId !== "WEBCORE-287") {
+        throw new Error(`No Jira issue is mentioned in merge request (${jiraIssueId})`);
+    }
+
+    console.log(`Update found for issue ${jiraIssueId}`);
+
+    try {
+        const issue = await jiraClient.getIssue(jiraIssueId);
+        await updateStatus(issue);
+        await updateAssignee(issue);
+    } catch (e) {
+        console.log("Failed to perform an operation", e);
+    }
+
+    async function updateStatus(issue) {
+        const targetStatus = determineTargetJiraStatus(mergeRequest);
+        const currentStatus = issue.fields.status.name;
+
+        if (!targetStatus) {
+            console.log("Target status could not be determined");
             return;
         }
 
-        const jiraIssueId = mergeRequest.getTitle().match(/^(?:WIP:\s*)?\[(.*?)]/)[1];
-        if (jiraIssueId == null || jiraIssueId === "" || jiraIssueId !== "WEBCORE-287") {
-            reject(`No Jira issue is mentioned in merge request (${jiraIssueId})`);
+        if (currentStatus === targetStatus) {
+            console.log("Status is already up-to-date");
             return;
         }
 
-        console.log(`Update found for issue ${jiraIssueId}`);
+        console.log(`Status should be updated to ${targetStatus} (was ${currentStatus})`);
 
-        jiraClient.getIssue(jiraIssueId)
-            .then(updateStatus)
-            .then(updateAssignee)
-            .catch(e => {
-                console.log("Failed to perform an operation", e);
-            });
+        try {
+            await jiraClient.updateStatus(jiraIssueId, targetStatus);
+            console.log(`Status updated to ${targetStatus}`);
 
-        function updateStatus(issue) {
-            const targetStatus = determineTargetJiraStatus(mergeRequest);
-            const currentStatus = issue.fields.status.name;
-
-            if (!targetStatus) {
-                console.log("Target status could not be determined");
-                return issue;
-            }
-
-            if (currentStatus === targetStatus) {
-                console.log("Status is already up-to-date");
-                return issue;
-            }
-
-            console.log(`Status should be updated to ${targetStatus} (was ${currentStatus})`);
-
-            return jiraClient.updateStatus(jiraIssueId, targetStatus)
-                .then(() => {
-                    console.log(`Status updated to ${targetStatus}`);
-                    return issue;
-                })
-                .catch(e => {
-                    console.error(`Failed to update status to ${targetStatus}, reason was ${e.message}`, e);
-                    return issue;
-                });
-
-            function determineTargetJiraStatus(mr) {
-                const labels = mr.getLabels();
-                return mr.isWIP()
-                    ? "In Progress"
-                    : labels.includes("need-review")
-                        ? "Review"
-                        : labels.includes("need-testing")
-                            ? "Testing"
-                            : "Done" /*mr.isMerged()
-                                ? "Done"
-                                : null;*/
-            }
+            const updater = await gitlabClient.getUser(mergeRequest.getUpdatedById());
+            const comment = `${updater.name} has changed the status to ${targetStatus}`;
+            await addComment(jiraIssueId, comment);
+        } catch (e) {
+            console.error(`Failed to update status to ${targetStatus}, reason was ${e.message}`, e);
+            throw e;
         }
 
-        function updateAssignee(issue) {
-            console.log("Looking for the assignee in JIRA");
-            jiraClient.findAssignableUsers(jiraIssueId, mergeRequest.getAssigneeName())
-                .then(users => {
-                    if (users.length !== 1) {
-                        console.log("Could not determine the assignee in JIRA, skipping");
-                        return Promise.resolve(issue);
-                    }
-
-                    const jiraUser = users[0];
-                    if (!issue.fields.assignee || issue.fields.assignee.accountId !== jiraUser.accountId) {
-
-                        console.log(`Assignee should be updated to ${jiraUser.displayName}`);
-                        jiraClient.assignIssue(jiraIssueId, jiraUser.name)
-                            .then(() => {
-                                console.log(`Assignee updated to ${jiraUser.displayName}`);
-                                return issue;
-                            })
-                            .catch(e => {
-                                console.error(`Failed to update assignee to ${jiraUser.displayName}, reason was ${e.message}`, e);
-                                return issue;
-                            });
-
-                    } else {
-                        console.log(`Assignee did not change (${jiraUser.displayName})`);
-                        return issue;
-                    }
-                });
-
+        function determineTargetJiraStatus(mr) {
+            const labels = mr.getLabels();
+            return mr.isWIP()
+                ? "In Progress"
+                : labels.includes("need-review")
+                    ? "Review"
+                    : labels.includes("need-testing")
+                        ? "Testing"
+                        : "Done"
+            /*mr.isMerged()
+                                       ? "Done"
+                                       : null;*/
         }
-    });
+    }
+
+    async function updateAssignee(issue) {
+        console.log("Looking for the assignee in JIRA");
+
+        const users = await jiraClient.findAssignableUsers(jiraIssueId, mergeRequest.getAssigneeName());
+
+        if (users.length !== 1) {
+            console.log("Could not determine the assignee in JIRA, skipping");
+            return;
+        }
+
+        const jiraUser = users[0];
+        if (issue.fields.assignee && issue.fields.assignee.accountId === jiraUser.accountId) {
+            console.log(`Assignee did not change (${jiraUser.displayName})`);
+            return;
+        }
+
+        console.log(`Assignee will be updated to ${jiraUser.displayName}`);
+
+        try {
+            await jiraClient.assignIssue(jiraIssueId, jiraUser.name);
+
+            console.log(`Assignee updated to ${jiraUser.displayName}`);
+
+            const updater = await gitlabClient.getUser(mergeRequest.getUpdatedById());
+            const comment = `${updater.name} has assigned issue to [~${jiraUser.name}]`;
+            await addComment(jiraIssueId, comment);
+        } catch (e) {
+            console.error(`Failed to update assignee to ${jiraUser.displayName}, reason was ${e.message}`, e);
+            throw e;
+        }
+    }
+
+    async function addComment(jiraIssueKey, comment) {
+        try {
+            await jiraClient.addComment(jiraIssueKey, comment);
+            console.log(`Added comment: ${comment}`);
+        } catch (e) {
+            console.warn(`Failed to add comment: ${comment}`, e);
+        }
+    }
 }
 
 function checkNewMergeRequestEvents() {
@@ -119,9 +133,7 @@ function checkNewMergeRequestEvents() {
 
     serverRequest(options).then(response => {
         if (response && response.data) {
-            handleMergeRequest(response.data).then(handled => {
-                console.log(handled ? "Update handled successfully" : "Update could not handled properly");
-            });
+            handleMergeRequest(response.data);
         }
     });
 }
