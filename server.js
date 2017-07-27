@@ -3,17 +3,20 @@ const bodyParser = require('body-parser');
 const app = express();
 
 const port = process.env.PORT || 80;
-const ip   = /*process.env.IP ||*/ '0.0.0.0';
+const ip   = process.env.IP || '0.0.0.0';
+
+let lastRequest = null;
 
 app.use(bodyParser.json());
 
 app.get("/", function(req, res) {
-    res.send("okay!!");
+    res.json(lastRequest);
+    //lastRequest = null;
 });
 
 app.post("/", function(req, res) {
-    const mergeRequest = req.body;
-    res.json(mergeRequest);
+    lastRequest = req.body;
+    res.json({});
 });
 
 console.log("Will listen on port " + port + " and ip " + ip);
