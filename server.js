@@ -11,7 +11,7 @@ app.use(bodyParser.json());
 
 app.get("/", function(req, res) {
     res.json(lastRequest);
-    //lastRequest = null;
+    lastRequest = null;
 });
 
 app.post("/", function(req, res) {
