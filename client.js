@@ -11,7 +11,7 @@ const jiraClient = new JiraClient({
 const gitlabClient = new GitLabClient({
 });
 
-async function handleMergeRequest(mergeRequestJSON) {
+async function handleMergeRequestEvent(mergeRequestJSON) {
     const mergeRequest = new GitLabMergeRequest(mergeRequestJSON);
     const isWebCoreMR = mergeRequest.getLabels().includes("web-core");
 
@@ -20,21 +20,22 @@ async function handleMergeRequest(mergeRequestJSON) {
     }
 
     const jiraIssueId = mergeRequest.getTitle().match(/^(?:WIP:\s*)?\[(.*?)]/)[1];
-    if (!jiraIssueId || jiraIssueId === "" || jiraIssueId !== "WEBCORE-287") {
+    if (!jiraIssueId || jiraIssueId === "") {
         throw new Error(`No Jira issue is mentioned in merge request (${jiraIssueId})`);
     }
 
     console.log(`Update found for issue ${jiraIssueId}`);
 
     try {
-        const issue = await jiraClient.getIssue(jiraIssueId);
-        await updateStatus(issue);
-        await updateAssignee(issue);
+
+        await updateStatus(jiraIssueId);
+        await updateAssignee(jiraIssueId);
     } catch (e) {
         console.log("Failed to perform an operation", e);
     }
 
-    async function updateStatus(issue) {
+    async function updateStatus(jiraIssueId) {
+        const issue = await jiraClient.getIssue(jiraIssueId);
         const targetStatus = determineTargetJiraStatus(mergeRequest);
         const currentStatus = issue.fields.status.name;
 
@@ -77,13 +78,13 @@ async function handleMergeRequest(mergeRequestJSON) {
         }
     }
 
-    async function updateAssignee(issue) {
+    async function updateAssignee(jiraIssueId) {
         console.log("Looking for the assignee in JIRA");
-
+        const issue = await jiraClient.getIssue(jiraIssueId);
         const users = await jiraClient.findAssignableUsers(jiraIssueId, mergeRequest.getAssigneeName());
 
         if (users.length !== 1) {
-            console.log("Could not determine the assignee in JIRA, skipping");
+            console.log(`Could not determine the assignee (${mergeRequest.getAssigneeName()}) in JIRA. (found ${users.length} results)`, users);
             return;
         }
 
@@ -133,7 +134,7 @@ function checkNewMergeRequestEvents() {
 
     serverRequest(options).then(response => {
         if (response && response.data) {
-            handleMergeRequest(response.data);
+            handleMergeRequestEvent(response.data);
         }
     });
 }

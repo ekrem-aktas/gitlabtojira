@@ -11,7 +11,9 @@ class JiraClient {
 
     getIssue(jiraIssueKey) {
         const request = this._buildJiraRequest(this._getIssuePath(jiraIssueKey));
-        return serverRequest(request).then(response => Promise.resolve(response.data));
+        return serverRequest(request).then(response => response.status >= 200 && response.status < 300
+            ? Promise.resolve(response.data)
+            : Promise.reject(response));
     }
 
     getStatusList(jiraIssueKey) {
@@ -22,12 +24,6 @@ class JiraClient {
     findAssignableUsers(jiraIssueKey, search) {
         const request = this._buildJiraRequest(`user/assignable/search?issueKey=${jiraIssueKey}&username=${encodeURIComponent(search)}`);
         return serverRequest(request).then(response => Promise.resolve(response.data));
-    }
-
-    async findUser(username) {
-        const request = this._buildJiraRequest(`user/search?username=${encodeURIComponent(username)}`);
-        const response = serverRequest(request);
-        return response.status === 200 && response.data.length === 1 ? response.data[0] : null;
     }
 
     assignIssue(jiraIssueKey, assigneeName) {

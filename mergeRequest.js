@@ -26,7 +26,8 @@ class GitLabMergeRequest {
     }
 
     getUpdatedById() {
-        return this._json.object_attributes.updated_by_id;
+        return this._json.object_attributes.updated_by_id
+            || this._json.object_attributes.author_id;
     }
 
     isDeleted() {
